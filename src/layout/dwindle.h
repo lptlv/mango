@@ -547,79 +547,85 @@ static void dwindle_insert_with_config(DwindleNode **root, Client *new_c,
 }
 
 void dwindle(Monitor *m) {
-	int32_t n = m->visible_tiling_clients;
-	if (n == 0)
-		return;
+    int32_t n = m->visible_tiling_clients;
+    if (n == 0)
+        return;
 
-	uint32_t tag = m->pertag->curtag;
-	DwindleNode **root = &m->pertag->dwindle_root[tag];
-	float ratio = config.dwindle_split_ratio;
+    uint32_t tag = m->pertag->curtag;
+    DwindleNode **root = &m->pertag->dwindle_root[tag];
+    float ratio = config.dwindle_split_ratio;
 
-	Client *vis[512];
-	int32_t count = 0;
-	Client *c;
-	wl_list_for_each(c, &clients, link) {
-		if (VISIBLEON(c, m) && ISTILED(c))
-			vis[count++] = c;
-		if (count >= 512)
-			break;
-	}
+    Client *vis[512];
+    int32_t count = 0;
+    Client *c;
+    wl_list_for_each(c, &clients, link) {
+        if (VISIBLEON(c, m) && ISTILED(c))
+            vis[count++] = c;
+        if (count >= 512)
+            break;
+    }
 
-	{
-		DwindleNode *leaves[512];
-		int32_t lc = 0;
+    // 清理树中已不存在的客户端
+    {
+        DwindleNode *leaves[512];
+        int32_t lc = 0;
 
-		DwindleNode *stack[1024];
-		int32_t sp = 0;
-		if (*root)
-			stack[sp++] = *root;
-		while (sp > 0) {
-			DwindleNode *nd = stack[--sp];
-			if (!nd->is_split) {
-				leaves[lc++] = nd;
-			} else {
-				if (nd->second)
-					stack[sp++] = nd->second;
-				if (nd->first)
-					stack[sp++] = nd->first;
-			}
-		}
+        DwindleNode *stack[1024];
+        int32_t sp = 0;
+        if (*root)
+            stack[sp++] = *root;
+        while (sp > 0) {
+            DwindleNode *nd = stack[--sp];
+            if (!nd->is_split) {
+                leaves[lc++] = nd;
+            } else {
+                if (nd->second)
+                    stack[sp++] = nd->second;
+                if (nd->first)
+                    stack[sp++] = nd->first;
+            }
+        }
 
-		for (int32_t i = 0; i < lc; i++) {
-			bool found = false;
-			for (int32_t j = 0; j < count; j++)
-				if (vis[j] == leaves[i]->client) {
-					found = true;
-					break;
-				}
-			if (!found) {
-				if (VISIBLEON(leaves[i]->client, m) &&
-					(leaves[i]->client->isfullscreen ||
-					 leaves[i]->client->ismaximizescreen))
-					continue;
-				dwindle_remove(root, leaves[i]->client);
-			}
-		}
-	}
+        for (int32_t i = 0; i < lc; i++) {
+            bool found = false;
+            for (int32_t j = 0; j < count; j++)
+                if (vis[j] == leaves[i]->client) {
+                    found = true;
+                    break;
+                }
+            if (!found) {
+                if (VISIBLEON(leaves[i]->client, m) &&
+                    (leaves[i]->client->isfullscreen ||
+                     leaves[i]->client->ismaximizescreen))
+                    continue;
+                dwindle_remove(root, leaves[i]->client);
+            }
+        }
+    }
 
-	Client *focused = focustop(m);
-	if (focused && !dwindle_find_leaf(*root, focused))
-		focused = m->sel;
-	for (int32_t i = 0; i < count; i++) {
-		if (!dwindle_find_leaf(*root, vis[i]))
-			dwindle_insert_with_config(root, vis[i], focused, ratio);
-	}
+    // 获得焦点客户端，若为空则用第一个可见平铺客户端兜底
+    Client *focused = focustop(m);
+    if (focused && !dwindle_find_leaf(*root, focused))
+        focused = m->sel;
 
-	int32_t gap_ih = enablegaps ? m->gappih : 0;
-	int32_t gap_iv = enablegaps ? m->gappiv : 0;
-	int32_t gap_oh = enablegaps ? m->gappoh : 0;
-	int32_t gap_ov = enablegaps ? m->gappov : 0;
-	if (config.smartgaps && n == 1)
-		gap_ih = gap_iv = gap_oh = gap_ov = 0;
+    if (!focused && count > 0)
+        focused = vis[0];
 
-	dwindle_assign(*root, m->w.x + gap_oh, m->w.y + gap_ov,
-				   m->w.width - 2 * gap_oh, m->w.height - 2 * gap_ov, gap_ih,
-				   gap_iv);
+    for (int32_t i = 0; i < count; i++) {
+        if (!dwindle_find_leaf(*root, vis[i]))
+            dwindle_insert_with_config(root, vis[i], focused, ratio);
+    }
+
+    int32_t gap_ih = enablegaps ? m->gappih : 0;
+    int32_t gap_iv = enablegaps ? m->gappiv : 0;
+    int32_t gap_oh = enablegaps ? m->gappoh : 0;
+    int32_t gap_ov = enablegaps ? m->gappov : 0;
+    if (config.smartgaps && n == 1)
+        gap_ih = gap_iv = gap_oh = gap_ov = 0;
+
+    dwindle_assign(*root, m->w.x + gap_oh, m->w.y + gap_ov,
+                   m->w.width - 2 * gap_oh, m->w.height - 2 * gap_ov, gap_ih,
+                   gap_iv);
 }
 
 void cleanup_monitor_dwindle(Monitor *m) {
