@@ -19,6 +19,7 @@
   meson,
   ninja,
   wlroots_0_20,
+  scenefx,
   libGL,
   enableXWayland ? true,
   debug ? false,
