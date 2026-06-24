@@ -18,8 +18,7 @@
   xwayland,
   meson,
   ninja,
-  scenefx,
-  wlroots_0_19,
+  wlroots_0_20,
   libGL,
   enableXWayland ? true,
   debug ? false,
@@ -56,8 +55,7 @@ stdenv.mkDerivation {
       pixman
       wayland
       wayland-protocols
-      wlroots_0_19
-      scenefx
+      wlroots_0_20
       libGL
       libdrm
     ]
