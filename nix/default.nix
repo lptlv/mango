@@ -1,4 +1,5 @@
 {
+  pkgs,
   lib,
   libX11,
   libinput,
@@ -25,7 +26,7 @@
   debug ? false,
 }:
 let
-  scenefx = ./scene20.nix;
+  scenefx = pkgs.callPackage ./scene20.nix {};
 in
 stdenv.mkDerivation {
   pname = "mango";
