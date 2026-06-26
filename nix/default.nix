@@ -25,7 +25,7 @@
   debug ? false,
 }:
 let
-  scenefx = ./scene20.nix
+  scenefx = ./scene20.nix;
 in
 stdenv.mkDerivation {
   pname = "mango";
