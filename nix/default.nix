@@ -24,6 +24,9 @@
   enableXWayland ? true,
   debug ? false,
 }:
+let
+  scenefx = ./scene20.nix
+in
 stdenv.mkDerivation {
   pname = "mango";
   version = "nightly";
@@ -59,6 +62,7 @@ stdenv.mkDerivation {
       wlroots_0_20
       libGL
       libdrm
+      scenefx
     ]
     ++ lib.optionals enableXWayland [
       libX11
