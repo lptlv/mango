@@ -1,4 +1,5 @@
 {
+  pkgs,
   lib,
   libX11,
   libinput,
@@ -19,11 +20,14 @@
   meson,
   ninja,
   scenefx,
-  wlroots_0_19,
+  wlroots_0_20,
   libGL,
   enableXWayland ? true,
   debug ? false,
 }:
+let
+  scenefx = pkgs.callPackage ./scenefx20.nix {};
+in
 stdenv.mkDerivation {
   pname = "mango";
   version = "nightly";
@@ -56,7 +60,7 @@ stdenv.mkDerivation {
       pixman
       wayland
       wayland-protocols
-      wlroots_0_19
+      wlroots_0_20
       scenefx
       libGL
       libdrm
