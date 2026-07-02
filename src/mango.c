@@ -515,6 +515,7 @@ typedef struct {
 	Monitor *mon;
 	struct wlr_scene_tree *scene;
 	struct wlr_scene_tree *popups;
+	struct wlr_scene_rect *shield;
 	struct wlr_scene_layer_surface_v1 *scene_layer;
 	struct wl_list link;
 	struct wl_list fadeout_link;
@@ -531,6 +532,7 @@ typedef struct {
 	int32_t noanim;
 	char *animation_type_open;
 	char *animation_type_close;
+	bool shield_when_capture;
 	bool need_output_flush;
 	bool being_unmapped;
 } LayerSurface;
@@ -1322,64 +1324,14 @@ void client_replace(Client *c, Client *w, bool is_group_change_member,
 	c->stack_proportion = w->stack_proportion;
 	c->is_logic_hide = w->is_logic_hide;
 
-	if (is_swallow) {
-		c->group_prev = w->group_prev;
-		c->group_next = w->group_next;
-		if (w->group_prev) {
-			w->group_prev->group_next = c;
-		}
-		if (w->group_next) {
-			w->group_next->group_prev = c;
-		}
-		w->group_next = NULL;
-		w->group_prev = NULL;
-
-		if (!w->is_logic_hide) {
-			c->isgroupfocusing = w->isgroupfocusing;
-		} else {
-			c->isgroupfocusing = false;
-		}
-
-	} else {
-		if (!is_group_change_member) {
-			if (w->group_prev == c) {
-				c->group_next = w->group_next;
-				if (w->group_next) {
-					w->group_next->group_prev = c;
-				}
-			} else if (w->group_next == c) {
-				c->group_prev = w->group_prev;
-				if (w->group_prev) {
-					w->group_prev->group_next = c;
-				}
-			} else {
-				c->group_prev = w->group_prev;
-				c->group_next = w->group_next;
-				if (w->group_prev) {
-					w->group_prev->group_next = c;
-				}
-
-				if (w->group_next) {
-					w->group_next->group_prev = c;
-				}
-			}
-
-			if (!c->group_prev && !c->group_next) {
-				c->isgroupfocusing = false;
-			} else {
-				c->isgroupfocusing = w->isgroupfocusing;
-			}
-		}
+	if (is_swallow || !is_group_change_member) {
+		client_group_replace(w, c);
 	}
 
 	w->is_logic_hide = true;
 	mango_group_bar_set_focus(c->group_bar, c->isgroupfocusing);
 
 	if (w->overview_scene_surface) {
-
-		wlr_scene_node_reparent(&w->shield->node, w->overview_scene_surface);
-		wlr_scene_node_raise_to_top(&w->shield->node);
-
 		wlr_scene_node_destroy(&w->scene_surface->node);
 		w->scene_surface = w->overview_scene_surface;
 		w->overview_scene_surface = NULL;
@@ -2813,6 +2765,7 @@ void maplayersurfacenotify(struct wl_listener *listener, void *data) {
 
 	l->noanim = 0;
 	l->dirty = false;
+	l->shield_when_capture = false;
 	l->need_output_flush = true;
 
 	// 应用layer规则
@@ -2823,17 +2776,28 @@ void maplayersurfacenotify(struct wl_listener *listener, void *data) {
 						l->layer_surface->namespace)) {
 
 			r = &config.layer_rules[ji];
+			APPLY_INT_PROP(l, r, shield_when_capture);
 			APPLY_INT_PROP(l, r, noanim);
 			APPLY_STRING_PROP(l, r, animation_type_open);
 			APPLY_STRING_PROP(l, r, animation_type_close);
 		}
 	}
 
+	// 初始化屏蔽
+	l->shield =
+		wlr_scene_rect_create(l->scene, 0, 0, (float[4]){0, 0, 0, 0xff});
+	l->shield->node.data = l;
+	wlr_scene_node_lower_to_bottom(&l->shield->node);
+	wlr_scene_node_set_enabled(&l->shield->node, false);
+
 	// 初始化动画
 	if (config.animations && config.layer_animations && !l->noanim) {
 		l->animation.duration = config.animation_duration_open;
 		l->animation.action = OPEN;
 		layer_set_pending_state(l);
+	} else {
+		l->animainit_geom = l->animation.current = l->current = l->pending =
+			l->geom;
 	}
 	// 刷新布局，让窗口能感应到exclude_zone变化以及设置独占表面
 	arrangelayers(l->mon);
@@ -2877,20 +2841,26 @@ void commitlayersurfacenotify(struct wl_listener *listener, void *data) {
 
 	get_layer_target_geometry(l, &box);
 
-	if (config.animations && config.layer_animations && !l->noanim &&
-		l->mapped &&
-		layer_surface->current.layer != ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM &&
-		layer_surface->current.layer != ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND &&
-		!wlr_box_equal(&box, &l->geom)) {
-
+	if (!wlr_box_equal(&box, &l->geom)) {
 		l->geom.x = box.x;
 		l->geom.y = box.y;
 		l->geom.width = box.width;
 		l->geom.height = box.height;
-		l->animation.action = MOVE;
-		l->animation.duration = config.animation_duration_move;
-		l->need_output_flush = true;
-		layer_set_pending_state(l);
+
+		if (config.animations && config.layer_animations && !l->noanim &&
+			l->mapped &&
+			layer_surface->current.layer != ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM &&
+			layer_surface->current.layer !=
+				ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
+			l->animation.action = MOVE;
+			l->animation.duration = config.animation_duration_move;
+			l->need_output_flush = true;
+			layer_set_pending_state(l);
+		} else {
+			l->animainit_geom = l->animation.current = l->current = l->pending =
+				l->geom;
+			l->need_output_flush = true;
+		}
 	}
 
 	if (layer_surface->current.committed == 0 &&
@@ -6766,16 +6736,7 @@ void unmapnotify(struct wl_listener *listener, void *data) {
 			focusclient(focustop(selmon), 1);
 	} else {
 
-		if (c->group_next && !c->isgroupfocusing) {
-			c->group_next->group_prev = c->group_prev;
-		}
-
-		if (c->group_prev && !c->isgroupfocusing) {
-			c->group_prev->group_next = c->group_next;
-		}
-
-		c->group_next = NULL;
-		c->group_prev = NULL;
+		client_group_detach(c);
 
 		wl_list_remove(&c->link);
 		setmon(c, NULL, 0, true);
@@ -6791,7 +6752,6 @@ void unmapnotify(struct wl_listener *listener, void *data) {
 		wlr_ext_foreign_toplevel_handle_v1_destroy(c->ext_foreign_toplevel);
 		c->ext_foreign_toplevel = NULL;
 	}
-
 
 	if (c->swallowing) {
 		setmaximizescreen(c->swallowing, c->ismaximizescreen, true);
@@ -6809,7 +6769,7 @@ void unmapnotify(struct wl_listener *listener, void *data) {
 		mango_jump_label_node_destroy(c->jump_label_node);
 		c->jump_label_node = NULL;
 	}
-	
+
 	if (c->group_bar) {
 		mango_group_bar_destroy(c->group_bar);
 		c->group_bar = NULL;
